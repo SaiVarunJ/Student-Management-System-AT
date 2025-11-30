@@ -1,2 +1,15 @@
+
+Structure:
+- src/main/java/... core classes and services
+- src/test/java/... unit tests (JUnit 5)
+
+How to build & test (requires Maven):
 # Student-Management-System-AT
-Designing and implementing a Library Management System in Java. This system will help librarians manage books, patrons, and lending processes efficiently. Built with understanding of Object-Oriented Programming (OOP), SOLID principles, and relevant design patterns.
+```cmd
+mvn test
+```
+
+This scaffold demonstrates OOP, design patterns (Singleton, Factory, Observer), and modern Java features (Streams, Optional, LocalDate, Lambdas).
+
+Minimal Java project scaffold for Student Management System assignment.
+
