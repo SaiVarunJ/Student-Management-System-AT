@@ -1,224 +1,145 @@
 # JVM Architecture Report
 
-This document explains the major components of the Java Virtual Machine (JVM), describes how bytecode is executed, compares the Just-In-Time (JIT) compiler and the interpreter, and explains the "Write Once, Run Anywhere" (WORA) principle.
+This document explains the major components of the Java Virtual Machine (JVM), how bytecode is executed, the difference between the Just-In-Time (JIT) compiler and the interpreter, and why Java follows the "Write Once, Run Anywhere" (WORA) principle.
 
 ---
 
 ## 1. High-level diagram of JVM components
 
-Below are two representations: a mermaid flowchart (works in many renderers like GitHub/GitLab) and an ASCII fallback.
+Below is a visual overview of the major JVM blocks:
+![java -version output](image/JVM.png)
 
-Mermaid diagram:
-
-```mermaid
-flowchart LR
-  subgraph CL [Class Loader Subsystem]
-    direction TB
-    CLB(Bootstrap Loader)
-    CLE(Extension Loader)
-    CLA(Application / System Loader)
-  end
-
-  subgraph RDA [Runtime Data Areas]
-    direction TB
-    MA(Method Area)
-    Heap(Heap)
-    JVMStk(JVM Stacks)
-    PC(Program Counters)
-    NMS(Native Method Stacks)
-  end
-
-  subgraph EE [Execution Engine]
-    direction TB
-    Interp(Interpreter)
-    JIT[JIT Compiler]
-    GC(Garbage Collector)
-    NIF(Native Interface)
-  end
-
-  CL --> RDA
-  CL --> EE
-  RDA --> EE
-  EE --> NIF
-  classDef[".class files / bytecode"] --> CL
-  runtimeApp["Running Application"] --> EE
-```
-
-ASCII fallback:
+### ASCII diagram (fallback)
 
 ```
-           +----------------------+          +----------------------+
-           |  .class files / JAR  |          |  Native Libraries    |
-           +----------+-----------+          +----------+-----------+
-                      |                                ^
-                      v                                |
-               +--------------+                        |
-               | Class Loader |------------------------+
-               | subsystem    | (loads, links, init)    |
-               +------+-------+                        |
-                      |                                |
-                      v                                |
-        +----------------------------------------------+|
-        |             Runtime Data Areas               ||
-        |  - Method Area   - Heap   - JVM Stacks       ||
-        |  - PC Registers  - Native Stacks             ||
-        +-----------------+----------------------------+|
-                          |                             |
-                          v                             v
-                   +----------------------+        +------------------+
-                   |  Execution Engine    |<------>| Native Interface |
-                   |  - Interpreter       |        +------------------+
-                   |  - JIT Compiler      |
-                   |  - Garbage Collector |
-                   +----------------------+
++----------------------+          
+|  .class files / JAR  |          
++----------+-----------+          
+           |                      
+           v                      
++--------------+                  
+| Class Loader |  (loads, links, init)
++------+-------+                  
+       |                          
+       v                          
++----------------------------------------------+
+|             Runtime Data Areas               |
+|  Method Area | Heap | Stacks | PC | Native   |
++-----------------+----------------------------+
+       |                          
+       v                          
++----------------------+        
+|  Execution Engine    |        
+| Interpreter, JIT, GC |        
++----------------------+        
 ```
 
 ---
 
-## 2. Class Loader Subsystem
+## 2. Class Loader Subsystem (How classes enter the JVM)
 
-Responsibilities:
-- Locate and read binary class data (.class files or entries in JARs).
-- Create an in-memory representation of the class (class object in the Method Area).
-- Perform linking (verification, preparation, resolution) and initialization.
+The Class Loader subsystem is responsible for locating and bringing class definitions (.class files) into the JVM and performing verification and linkage. The most common loaders are:
 
-Key loaders (typical hierarchy):
-- Bootstrap (primordial) Class Loader: loads core Java runtime classes (rt.jar or java.base module).
-- Extension (Platform) Class Loader: loads optional extension libraries.
-- Application (System) Class Loader: loads classes from the application classpath.
+- Bootstrap Class Loader — loads core Java classes (java.lang, java.util, etc.)
+- Extension / Platform Class Loader — loads extension and platform libraries
+- Application / System Class Loader — loads application classes from the classpath
 
-Lifecycle steps:
-1. Loading: Find and read class bytes.
-2. Verification: Check bytecode correctness and safety.
-3. Preparation: Allocate class-level data (static fields with default values) in the Method Area.
-4. Resolution: Convert symbolic references to direct references (may be lazy).
-5. Initialization: Run static initializers and assign explicit static values.
+Typical loading lifecycle:
+1. Loading — read .class bytes into memory
+2. Verification — check bytecode validity and safety
+3. Preparation — allocate storage for static fields
+4. Resolution — replace symbolic references with direct references
+5. Initialization — execute static initializers and assign static fields
 
-Notes: custom class loaders can alter visibility and allow multiple versions of the same class to coexist.
+These steps help ensure the JVM executes safe, well-formed code.
 
 ---
 
-## 3. Runtime Data Areas (Memory Model)
+## 3. Runtime Data Areas (JVM memory model)
 
-The JVM specifies several runtime data areas, some are per-JVM and some per-thread.
+The JVM separates memory into areas shared across threads and areas private to each thread.
 
-- Method Area (shared): stores class structures such as runtime constant pool, field and method data, and code for methods and constructors. Often implemented within metaspace (modern HotSpot) or PermGen (older VMs).
-- Heap (shared): runtime allocation area for all class instances and arrays. This is the primary area managed by the Garbage Collector (GC).
-- JVM Stacks (per thread): each Java thread has its own stack. A stack stores frames, and each frame contains local variables, operand stack, and a reference to the runtime constant pool of the class of the current method.
-- Program Counter (PC) Register (per thread): holds the address of the currently executing instruction in the current frame. For native methods, the PC may be undefined.
-- Native Method Stacks (per thread): used for native (JNI) method invocation. Some JVMs implement native stacks as part of the same area as Java stacks.
+Shared memory areas:
+- Method Area — stores class-level metadata (methods, fields, constant pool)
+- Heap — main area for object and array allocation (managed by the garbage collector)
 
-Memory management and GC work primarily on the Heap, with interactions from the Method Area (for class metadata) and roots coming from stacks and static fields.
+Per-thread memory areas:
+- JVM Stack — contains stack frames for method invocations
+- Program Counter (PC) Register — tracks the current instruction for each thread
+- Native Method Stack — used for native (JNI) calls
 
----
-
-## 4. Execution Engine
-
-Components:
-- Interpreter: reads bytecode instructions and executes them directly. Good for fast startup and low memory footprint but slower steady-state throughput.
-- JIT Compiler: compiles frequently executed bytecode sequences (hot methods) into native machine code at runtime. Optimizes using runtime profiling (inlining, escape analysis, loop optimizations).
-- Garbage Collector: reclaims unused objects from the heap. Multiple GC algorithms exist (Serial, Parallel, CMS, G1, ZGC, Shenandoah), each with trade-offs in throughput vs pause times.
-- Native Interface: Java Native Interface (JNI) allows calling platform-native code and libraries.
-
-How execution works in modern JVMs:
-- Initially, code is executed by the interpreter.
-- A profiler counts method/instruction execution frequency.
-- Hot methods/loops are handed to the JIT which compiles and replaces the interpreted path with optimized native code.
-- JIT uses runtime information (type profiles, branch probabilities) to generate more aggressive optimizations than static compilers.
+Analogy: the Heap is a shared storage room, while each thread has a small bag (its stack) for temporary method-local data.
 
 ---
 
-## 5. JIT Compiler vs Interpreter (comparison)
+## 4. Execution Engine (how bytecode runs)
 
-Contract (inputs/outputs, error modes):
-- Inputs: JVM bytecode (class files), runtime profiling data.
-- Outputs: executed program behavior (side effects, return values), optionally native machine code cached in memory.
-- Error modes: verification/linking failures, JIT bugs that can cause incorrect native code (rare but possible), runtime exceptions.
+Main components:
+- Interpreter — executes bytecode one instruction at a time (fast startup)
+- JIT Compiler — compiles hot bytecode into native machine code for better performance
+- Garbage Collector (GC) — reclaims unused objects on the heap
+- Native Interface (JNI) — enables calls to native libraries (C/C++)
 
-Interpreter:
-- Pros: immediate execution (low startup overhead), simple implementation, easy debugging (one-to-one mapping to bytecode). 
-- Cons: per-instruction overhead; no heavy cross-call optimizations.
-
-JIT Compiler:
-- Pros: high steady-state performance, runtime-driven optimizations, inlining across calls, speculative optimizations based on actual types.
-- Cons: compilation overhead (CPU/memory), warm-up time before reaching peak performance, complexity (can introduce uncommon runtime bugs in rare JVMs).
-
-Typical strategy: tiered compilation (interpreted -> C1 quick compiler -> C2 optimizing compiler) to balance startup and steady-state performance.
-
-When to prefer one over the other:
-- Short-lived programs or simple scripts may benefit from interpretation (faster to start).
-- Long-running server applications benefit from JIT optimizations.
+Typical runtime flow:
+1. Class data is loaded and linked by the Class Loader
+2. The interpreter executes bytecode initially
+3. The JVM identifies "hot" methods and compiles them with the JIT
+4. The GC runs periodically or on demand to reclaim memory
 
 ---
 
-## 6. Bytecode execution process (step-by-step)
+## 5. JIT compiler vs Interpreter (comparison)
 
-1. Java source (.java) is compiled by javac into platform-neutral bytecode (.class).
-2. At runtime, the Class Loader subsystem locates .class bytes and loads them into the JVM.
-3. The bytecode verifier checks that the code adheres to bytecode and JVM safety constraints (stack heights, type correctness, access control).
-4. The class is linked: symbolic references are resolved (either eagerly or lazily), and static fields are prepared.
-5. Class initialization runs static initializers (<clinit>) and assigns explicit static values.
-6. The Execution Engine interprets bytecode instructions. As the program runs, the profiler marks hot spots.
-7. The JIT compiler compiles hot methods/paths to native code. The execution engine replaces interpreted frames or dispatch with compiled code.
-8. Garbage collector runs periodically or concurrently, reclaiming memory in the Heap while preserving program semantics. GC uses root scanning (from stacks, static fields, registers) to determine live objects.
-9. If native code is required, the Native Interface handles calling out to platform-native libraries.
+| Feature | Interpreter | JIT compiler |
+|---|---:|---:|
+| Execution model | Executes bytecode instruction-by-instruction | Compiles bytecode to native machine code
+| Startup time | Fast (no compile overhead) | Slower initially (compilation cost)
+| Peak efficiency | Lower | Much higher for hot code
+| Best for | Short-lived programs or cold code paths | Long-running applications and hot code paths
 
-Important details:
-- Exceptions, synchronization, and class metadata accesses are all implemented in the runtime and impact both interpreted and JIT-compiled code.
-- Many JVMs perform deoptimization: if a JIT makes speculative assumptions and they are invalidated at runtime, the JVM can fall back to a safe, deoptimized (interpreted) state and recompile with new information.
+Modern JVMs use tiered compilation: they start with interpretation and progressively apply more aggressive compilation strategies as code becomes hot.
 
 ---
 
-## 7. "Write Once, Run Anywhere" (WORA)
+## 6. Step-by-step bytecode execution (summary)
 
-Meaning:
-- Java source is compiled to JVM bytecode which is independent of the underlying CPU and OS.
-- Any platform that provides a conformant JVM implementation can execute the same bytecode without recompilation.
+1. Write Java source (.java) and compile to bytecode (.class).
+2. Class Loader loads and verifies classes.
+3. The JVM allocates class and object structures in Method Area and Heap.
+4. The interpreter executes bytecode; hot methods are JIT-compiled.
+5. GC reclaims unused objects; JNI handles native interactions when needed.
 
-How it works:
-- Bytecode abstracts machine instructions and relies on the JVM to provide a consistent execution model and standard libraries.
-- The JVM implementation maps bytecode to native instructions for the host platform. This mapping is the responsibility of the JVM vendor and hides platform differences from the bytecode.
-
-Caveats and practical limitations:
-- Native code dependency: if an application uses JNI or platform-specific libraries, those native components must be recompiled or replaced for the target platform.
-- JVM differences: subtle behavioral differences, different default GC algorithms, or JDK versions can cause different performance or timing; strict specification compliance reduces incompatibilities but does not eliminate them.
-- File system, line endings, and locale differences: code that assumes platform specifics (file paths, encodings) may not be portable without care.
-
-In practice: WORA is highly effective for pure Java applications that avoid native bindings and adhere to standard APIs.
+This pipeline balances safety, portability, and runtime performance.
 
 ---
 
-## 8. Short glossary
+## 7. Why Java is "Write Once, Run Anywhere" (WORA)
 
-- Bytecode: platform-neutral compiled form of Java source.
-- Class Loader: component that loads class byte arrays into the JVM and prepares them for execution.
-- Method Area: JVM memory area holding class metadata and code structures.
-- Heap: area for object allocation and GC.
-- JIT: runtime compiler that produces native machine code from bytecode.
-- Interpreter: executes bytecode instruction-by-instruction.
-- JNI: Java Native Interface for calling native code.
+- Java compiles to platform-neutral bytecode rather than machine code.
+- The JVM provides a platform-specific runtime that interprets or compiles bytecode to native code.
+- Standard APIs and the JVM abstraction ensure consistent behavior across platforms.
 
----
-
-## 9. Requirements coverage checklist
-
-- Create detailed diagram of JVM components: Done (mermaid + ASCII).
-- Explain JIT compiler vs Interpreter: Done (section 5, comparison and trade-offs).
-- Demonstrate understanding of bytecode execution process: Done (section 6, step-by-step).
-- Write explanation of "Write Once, Run Anywhere": Done (section 7, with caveats).
+Limitations to WORA:
+- Native code via JNI introduces platform dependencies.
+- Differences in JVM implementations or versions can create subtle behavior differences.
+- OS-specific assumptions (file paths, encodings, locale data) can break portability.
 
 ---
 
-## Next steps / improvements
-- Add hand-drawn or generated images (PNG/SVG) to `docs/image/` for prettier diagrams.
-- Add references and links to Oracle/OpenJDK JVM specification and HotSpot internals for deeper reading.
+## 8. Glossary
+
+- Bytecode — platform-independent instructions produced by the Java compiler.
+- Class Loader — component that loads .class bytecode into the JVM.
+- Method Area — memory area holding class-level metadata and runtime constant pool.
+- Heap — memory area for objects and arrays.
+- JIT Compiler — runtime compiler that turns hot bytecode into optimized native code.
+- Interpreter — executes bytecode sequentially when not compiled.
+- JNI — Java Native Interface, used to call native (C/C++) code from Java.
 
 ---
 
-## References
+## 9. References / further reading
 
-- Java Virtual Machine Specification (Oracle) - https://docs.oracle.com/javase/specs/
-- Java Language Specification - https://docs.oracle.com/javase/specs/jls/
-- OpenJDK HotSpot Internals - https://openjdk.org/groups/hotspot/
-- HotSpot Garbage Collection Tuning Guide - https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/
-- GraalVM (advanced JIT / AOT) - https://www.graalvm.org/
+- The Java Virtual Machine Specification (Oracle / OpenJDK)
+- "Inside the Java Virtual Machine" (book / articles)
+- OpenJDK HotSpot documentation (JIT and GC internals)

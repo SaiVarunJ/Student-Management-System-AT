@@ -37,9 +37,7 @@ Important: after setting path in environment properties open a new command promp
 java -version
 javac -version
 ```
-You should see Java 21 listed 
-
-<!-- Add screenshot of `java -version` output -->
+You should see Java 21 listed
 ![java -version output](image/javaVersion.png)
 
 4) Install Apache Maven

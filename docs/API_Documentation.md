@@ -12,7 +12,6 @@ Endpoints
 - Body: JSON array of Student objects
 
 Example request:
-
 ```sh
 curl "http://localhost:8000/students"
 curl "http://localhost:8000/students?q=Alice"
@@ -25,7 +24,6 @@ curl "http://localhost:8000/students?q=Alice"
   - 404 Not Found if student doesn't exist
 
 Example:
-
 ```sh
 curl http://localhost:8000/students/S001
 ```
@@ -60,7 +58,6 @@ Example request body (graduate):
 - Response: 201 Created with created student JSON
 
 Example curl:
-# Setup Instructions
 ```sh
 curl -X POST -H "Content-Type: application/json" -d @student.json http://localhost:8000/students
 ```
