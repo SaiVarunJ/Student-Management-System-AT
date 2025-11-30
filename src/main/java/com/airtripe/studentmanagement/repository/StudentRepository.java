@@ -1,4 +1,4 @@
-package com.airtripe.studentmanagement.service;
+package com.airtripe.studentmanagement.repository;
 
 import com.airtripe.studentmanagement.entity.Student;
 

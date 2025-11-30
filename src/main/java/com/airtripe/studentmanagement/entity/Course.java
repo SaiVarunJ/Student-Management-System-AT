@@ -19,4 +19,19 @@ public class Course {
     public String toString() {
         return String.format("Course[id=%s,name=%s,credits=%d]", id, name, credits);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null) return false;
+        if (!(o instanceof Course)) return false;
+        Course other = (Course) o;
+        if (this.id == null) return other.id == null;
+        return this.id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id == null ? 0 : id.hashCode();
+    }
 }

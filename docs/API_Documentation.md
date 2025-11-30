@@ -1,39 +1,56 @@
+curl -X POST -H "Content-Type: application/json" -d @enrollment.json http://localhost:8000/enrollments
+```
+
+PUT /enrollments/{studentId}/{courseId}
+- Description: Update an existing enrollment (used to set/update the grade).
+- Request body: JSON object with `grade` (number) field.
+- Response codes:
+  - 200 OK with updated enrollment JSON
+  - 400 Bad Request if `grade` is missing
+  - 404 Not Found if the enrollment (or student/course) does not exist
+
+Example request body:
+```json
+{ "grade": 9.5 }
+```
+
+Example:
+```sh
+curl -X PUT -H "Content-Type: application/json" -d @grade.json http://localhost:8000/enrollments/S001/C101
+```
+
+DELETE /enrollments/{studentId}/{courseId}
+- Description: Remove an enrollment.
+- Response codes:
+  - 204 No Content if removed
+  - 404 Not Found if not present
+
+Example:
+```sh
+curl -X DELETE http://localhost:8000/enrollments/S001/C101 -v
+```
+
+JSON Enrollment shape (example):
+```json
+{
+  "student": { "id": "S001", "name": "Alice", "email": "alice@example.com", "dateOfBirth": "2002-05-01" },
+  "course": { "id": "C101", "name": "Introduction to Programming", "credits": 4 },
+  "enrolledOn": "2023-09-01",
+  "grade": 9.5
+}
+```
+
+Error handling (enrollments/courses)
+- 400 Bad Request when required fields are missing (e.g. POST /enrollments without studentId or courseId, or PUT /enrollments missing grade).
+- 404 Not Found when referenced resources don't exist (student/course/enrollment).
+- 405 Method Not Allowed for unsupported HTTP methods on endpoints.
+- 500 Internal Server Error for unexpected server errors; body will include `{"error":"message"}` when available.
+
 # API Documentation
 
 Base URL (default): http://localhost:8000
 
 Endpoints
-
-1) GET /students
-- Description: List all students or search by query.
-- Query parameters:
-  - `q` (optional) - search text matched against id, name, or email.
-- Response: 200 OK
-- Body: JSON array of Student objects
-
-Example request:
-```sh
-curl "http://localhost:8000/students"
-curl "http://localhost:8000/students?q=Alice"
-```
-
-2) GET /students/{id}
-- Description: Get a single student by id.
-- Response codes:
-  - 200 OK with student JSON
-  - 404 Not Found if student doesn't exist
-
-Example:
-```sh
-curl http://localhost:8000/students/S001
-```
-
-3) POST /students
-- Description: Create a new student.
-- Request body: JSON object with the student fields. Required fields depend on the type but generally provide `id`, `name`, `email`, `dateOfBirth` (YYYY-MM-DD). To create a graduate student include `thesisTitle` (or `thesis_title`).
-
-Example request body (undergraduate):
-
 ```json
 {
   "id": "S010",
@@ -56,7 +73,7 @@ Example request body (graduate):
 ```
 
 - Response: 201 Created with created student JSON
-
+- REST server listens on port 8000 and exposes `/students`, `/courses`, `/enrollments` and `/metrics` endpoints.
 Example curl:
 ```sh
 curl -X POST -H "Content-Type: application/json" -d @student.json http://localhost:8000/students
@@ -99,6 +116,129 @@ curl -X DELETE http://localhost:8000/students/S001 -v
 7) GET /h2-console
 - Description: A convenience redirect endpoint that issues a 302 redirect to the H2 web console URL. By default the app starts the H2 web console on `http://localhost:8082/` and `/h2-console` redirects there.
 
+8) Courses - /courses
+- Description: Manage course resources.
+
+- Description: List all courses or search by query.
+- Query parameters:
+  - `q` (optional) - search text matched against id or name.
+- Response: 200 OK
+- Body: JSON array of Course objects
+
+Example request:
+```sh
+curl "http://localhost:8000/courses"
+curl "http://localhost:8000/courses?q=math"
+```
+
+GET /courses/{id}
+- Description: Get a single course by id.
+- Response codes:
+  - 200 OK with course JSON
+  - 404 Not Found if course doesn't exist
+
+Example:
+```sh
+curl http://localhost:8000/courses/C101
+```
+
+POST /courses
+- Description: Create a new course.
+- Request body: JSON object with `id`, `name`, and optional `credits` (integer).
+
+Example request body:
+```json
+{
+  "id": "C101",
+  "name": "Introduction to Programming",
+  "credits": 4
+}
+```
+- Response: 201 Created with created course JSON
+
+Example curl:
+```sh
+curl -X POST -H "Content-Type: application/json" -d @course.json http://localhost:8000/courses
+```
+
+PUT /courses/{id}
+- Description: Update an existing course (replace with provided data).
+- Request body: same shape as POST.
+- Response codes:
+  - 200 OK with the updated course JSON
+  - 404 Not Found if the course id does not exist
+
+Example:
+```sh
+curl -X PUT -H "Content-Type: application/json" -d @updated_course.json http://localhost:8000/courses/C101
+```
+
+DELETE /courses/{id}
+- Description: Remove a course.
+- Response codes:
+  - 204 No Content if removed
+  - 404 Not Found if not present
+
+Example:
+```sh
+curl -X DELETE http://localhost:8000/courses/C101 -v
+```
+
+JSON Course shape (example):
+```json
+{
+  "id": "C101",
+  "name": "Introduction to Programming",
+  "credits": 4
+}
+```
+
+9) Enrollments - /enrollments
+- Description: Manage enrollments that link students to courses. Enrollment resources include student, course, enrolledOn date, and optional grade.
+
+GET /enrollments
+- Description: List all enrollments or filter by studentId or courseId.
+- Query parameters:
+  - `studentId` (optional) - return enrollments for the given student
+  - `courseId` (optional) - return enrollments for the given course
+- Response: 200 OK
+- Body: JSON array of Enrollment objects
+
+Examples:
+```sh
+curl "http://localhost:8000/enrollments"
+curl "http://localhost:8000/enrollments?studentId=S001"
+curl "http://localhost:8000/enrollments?courseId=C101"
+```
+
+GET /enrollments/{studentId}/{courseId}
+- Description: Get a single enrollment by student id and course id.
+- Response codes:
+  - 200 OK with enrollment JSON
+  - 404 Not Found if not present
+
+Example:
+```sh
+curl http://localhost:8000/enrollments/S001/C101
+```
+
+POST /enrollments
+- Description: Create a new enrollment. Body must include `studentId` and `courseId`.
+- Request body example:
+```json
+{
+  "studentId": "S001",
+  "courseId": "C101",
+  "enrolledOn": "2023-09-01"
+}
+```
+- Response codes:
+  - 201 Created with created enrollment JSON
+  - 400 Bad Request if `studentId` or `courseId` missing
+  - 404 Not Found if the student or course does not exist
+
+Example curl:
+```sh
 Notes
 - Content-Type: All JSON responses are served with `Content-Type: application/json`.
 - Date format: `dateOfBirth` uses ISO date `YYYY-MM-DD` and maps to Java LocalDate.

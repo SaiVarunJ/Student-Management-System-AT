@@ -1,6 +1,7 @@
 package com.airtripe.studentmanagement.service;
 
 import com.airtripe.studentmanagement.entity.Student;
+import com.airtripe.studentmanagement.repository.StudentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

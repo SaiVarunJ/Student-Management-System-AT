@@ -8,8 +8,8 @@ import com.airtripe.studentmanagement.util.ConfigSingleton;
 import com.airtripe.studentmanagement.util.InputValidator;
 import com.airtripe.studentmanagement.util.DateUtil;
 import com.airtripe.studentmanagement.util.StudentPersistence;
-import com.airtripe.studentmanagement.service.StudentRepositoryJdbc;
-import com.airtripe.studentmanagement.service.StudentRepository;
+import com.airtripe.studentmanagement.repository.StudentRepositoryJdbc;
+import com.airtripe.studentmanagement.repository.StudentRepository;
 import com.airtripe.studentmanagement.service.EnrollmentService;
 import com.airtripe.studentmanagement.observer.GradeNotificationService;
 import com.airtripe.studentmanagement.observer.GradeNotificationListener;
@@ -59,11 +59,18 @@ public class Main {
             repo.addStudent(g1);
         }
 
-        CourseService courseService = new CourseService();
+        // use JDBC-backed Course repository and Enrollment repository to persist data
+        com.airtripe.studentmanagement.repository.CourseRepositoryJdbc courseRepo = new com.airtripe.studentmanagement.repository.CourseRepositoryJdbc();
+        courseRepo.init();
         Course c1 = new Course("C101", "Data Structures", 4);
         Course c2 = new Course("C102", "Algorithms", 4);
-        courseService.addCourse(c1);
-        courseService.addCourse(c2);
+        // seed courses (upsert)
+        courseRepo.addCourse(c1);
+        courseRepo.addCourse(c2);
+
+        // enrollment repository (persist enrollments) — depends on student and course repos
+        com.airtripe.studentmanagement.repository.EnrollmentRepositoryJdbc enrollmentRepo = new com.airtripe.studentmanagement.repository.EnrollmentRepositoryJdbc(repo, courseRepo);
+        enrollmentRepo.init();
 
         // Observer: setup notification service and register a listener
         GradeNotificationService notificationService = new GradeNotificationService();
@@ -77,11 +84,14 @@ public class Main {
         var maybeS1 = repo.findById("S001");
         if (maybeS1.isPresent()) {
             var enrollment = enrollmentService.enroll(maybeS1.get(), c1);
+            // persist enrollment and then assign grade and persist update
+            enrollmentRepo.add(enrollment);
             enrollment.setGrade(88.5);
+            enrollmentRepo.add(enrollment);
         }
 
         // start REST server in background
-        RestServer rest = new RestServer(repo, 8000);
+        RestServer rest = new RestServer(repo, courseRepo, enrollmentRepo, 8000);
         Thread restThread = new Thread(rest::start, "rest-server");
         restThread.setDaemon(true);
         restThread.start();
@@ -112,6 +122,21 @@ public class Main {
                         searchStudentFlow(scanner, repo);
                         break;
                     case "6":
+                        addCourseFlow(scanner, courseRepo);
+                        break;
+                    case "7":
+                        viewAllCourses(courseRepo);
+                        break;
+                    case "8":
+                        enrollStudentFlow(scanner, repo, courseRepo, enrollmentService, enrollmentRepo);
+                        break;
+                    case "9":
+                        viewEnrollmentsByStudent(scanner, enrollmentRepo);
+                        break;
+                    case "10":
+                        assignGradeFlow(scanner, repo, courseRepo, enrollmentRepo);
+                        break;
+                    case "11":
                         running = false;
                         System.out.println("Goodbye.");
                         break;
@@ -141,7 +166,81 @@ public class Main {
         System.out.println("3) Update Student");
         System.out.println("4) Delete Student");
         System.out.println("5) Search Students (by id/name/email)");
-        System.out.println("6) Exit");
+        System.out.println("6) Add Course");
+        System.out.println("7) View All Courses");
+        System.out.println("8) Enroll Student in Course");
+        System.out.println("9) View Enrollments by Student");
+        System.out.println("10) Assign Grade to Enrollment");
+        System.out.println("11) Exit");
+    }
+
+    private static void addCourseFlow(Scanner scanner, com.airtripe.studentmanagement.repository.CourseRepository courseRepo) {
+        System.out.print("Enter course id: ");
+        String id = scanner.nextLine().trim();
+        if (!InputValidator.notNullOrEmpty(id)) { System.out.println("Invalid id."); return; }
+        System.out.print("Enter course name: ");
+        String name = scanner.nextLine().trim();
+        if (!InputValidator.notNullOrEmpty(name)) { System.out.println("Invalid name."); return; }
+        System.out.print("Enter credits (integer): ");
+        String creditsStr = scanner.nextLine().trim();
+        int credits = 0;
+        try { credits = Integer.parseInt(creditsStr); } catch (Exception e) { System.out.println("Invalid credits."); return; }
+        Course c = new Course(id, name, credits);
+        courseRepo.addCourse(c);
+        System.out.println("Course added: " + c);
+    }
+
+    private static void viewAllCourses(com.airtripe.studentmanagement.repository.CourseRepository courseRepo) {
+        List<Course> all = courseRepo.findAll();
+        if (all.isEmpty()) { System.out.println("No courses."); return; }
+        System.out.println("Courses:");
+        all.forEach(c -> System.out.println(String.format("%s | id=%s | credits=%d", c.getName(), c.getId(), c.getCredits())));
+    }
+
+    private static void enrollStudentFlow(Scanner scanner, StudentRepository repo, com.airtripe.studentmanagement.repository.CourseRepository courseRepo, EnrollmentService enrollmentService, com.airtripe.studentmanagement.repository.EnrollmentRepository enrollmentRepo) {
+        System.out.print("Enter student id to enroll: ");
+        String sid = scanner.nextLine().trim();
+        Optional<Student> sOpt = repo.findById(sid);
+        if (sOpt.isEmpty()) { System.out.println("Student not found."); return; }
+        System.out.print("Enter course id: ");
+        String cid = scanner.nextLine().trim();
+        Optional<Course> cOpt = courseRepo.findById(cid);
+        if (cOpt.isEmpty()) { System.out.println("Course not found."); return; }
+        var e = enrollmentService.enroll(sOpt.get(), cOpt.get());
+        // persist enrollment
+        enrollmentRepo.add(e);
+        System.out.println("Enrolled: " + e);
+    }
+
+    private static void viewEnrollmentsByStudent(Scanner scanner, com.airtripe.studentmanagement.repository.EnrollmentRepository enrollmentRepo) {
+        System.out.print("Enter student id: ");
+        String sid = scanner.nextLine().trim();
+        List<com.airtripe.studentmanagement.entity.Enrollment> list = enrollmentRepo.findByStudentId(sid);
+        if (list.isEmpty()) { System.out.println("No enrollments found."); return; }
+        System.out.println("Enrollments:");
+        list.forEach(en -> System.out.println(en.toString()));
+    }
+
+    private static void assignGradeFlow(Scanner scanner, StudentRepository repo, com.airtripe.studentmanagement.repository.CourseRepository courseRepo, com.airtripe.studentmanagement.repository.EnrollmentRepository enrollmentRepo) {
+        System.out.print("Enter student id: ");
+        String sid = scanner.nextLine().trim();
+        Optional<Student> sOpt = repo.findById(sid);
+        if (sOpt.isEmpty()) { System.out.println("Student not found."); return; }
+        System.out.print("Enter course id: ");
+        String cid = scanner.nextLine().trim();
+        Optional<Course> cOpt = courseRepo.findById(cid);
+        if (cOpt.isEmpty()) { System.out.println("Course not found."); return; }
+        Optional<com.airtripe.studentmanagement.entity.Enrollment> eOpt = enrollmentRepo.find(sOpt.get(), cOpt.get());
+        if (eOpt.isEmpty()) { System.out.println("Enrollment not found."); return; }
+        System.out.print("Enter grade (numeric): ");
+        String gStr = scanner.nextLine().trim();
+        double grade;
+        try { grade = Double.parseDouble(gStr); } catch (Exception ex) { System.out.println("Invalid grade."); return; }
+        var e = eOpt.get();
+        e.setGrade(grade);
+        // persist updated grade
+        enrollmentRepo.add(e);
+        System.out.println("Grade assigned: " + e);
     }
 
     private static void addStudentFlow(Scanner scanner, StudentRepository repo) {

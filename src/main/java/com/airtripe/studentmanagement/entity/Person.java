@@ -24,4 +24,20 @@ public abstract class Person {
     public String toString() {
         return String.format("%s[id=%s,name=%s,email=%s,dob=%s]", getClass().getSimpleName(), id, name, email, dateOfBirth);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null) return false;
+        if (!(o instanceof Person)) return false;
+        Person other = (Person) o;
+        // consider two persons equal if their ids are equal (case-sensitive)
+        if (this.id == null) return other.id == null;
+        return this.id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id == null ? 0 : id.hashCode();
+    }
 }
